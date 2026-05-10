@@ -4,25 +4,32 @@ import com.shopping.email_service.dto.EmailRequest;
 import com.shopping.email_service.dto.EmailResponse;
 import com.shopping.email_service.entity.EmailLog;
 import com.shopping.email_service.repository.EmailLogRepository;
-import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class EmailService {
 
-    private final JavaMailSender       mailSender;
     private final EmailLogRepository   emailLogRepository;
     private final EmailTemplateService templateService;
+    private final RestTemplate         restTemplate;
 
-    @Value("${spring.mail.username}")
-    private String senderEmail;
+    @Value("${resend.api-key}")
+    private String resendApiKey;
+
+    @Value("${resend.api-url}")
+    private String resendApiUrl;
+
+    @Value("${app.email.from}")
+    private String fromAddress;
 
     @Value("${app.email.sender-name}")
     private String senderName;
@@ -34,59 +41,55 @@ public class EmailService {
         log.setEmailType(request.getType());
 
         try {
-            // Build HTML email
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper =
-                    new MimeMessageHelper(message, true, "UTF-8");
-
-            helper.setFrom(senderEmail, senderName);
-            helper.setTo(request.getTo());
-            helper.setSubject(request.getSubject());
-
-            // Use HTML template
             String htmlContent = templateService.buildTemplate(request);
-            helper.setText(htmlContent, true); // true = isHtml
 
-            mailSender.send(message);
+            // Build Resend API payload
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("from",    senderName + " <" + fromAddress + ">");
+            payload.put("to",      new String[]{ request.getTo() });
+            payload.put("subject", request.getSubject());
+            payload.put("html",    htmlContent);
 
-            // Log success
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(resendApiKey);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    resendApiUrl,
+                    HttpMethod.POST,
+                    new HttpEntity<>(payload, headers),
+                    Map.class
+            );
+
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                throw new RuntimeException("Resend API returned: " + response.getStatusCode());
+            }
+
             log.setStatus("SENT");
             emailLogRepository.save(log);
 
-            return new EmailResponse(
-                    true,
-                    "Email sent successfully",
-                    request.getTo(),
-                    request.getType()
-            );
+            return new EmailResponse(true, "Email sent successfully",
+                    request.getTo(), request.getType());
 
         } catch (Exception e) {
-            // Log failure with reason so it's visible in the email_logs table
             String reason = e.getClass().getSimpleName() + ": " + e.getMessage();
             log.setStatus("FAILED");
             log.setFailureReason(reason);
             emailLogRepository.save(log);
 
-            // Also print to console so it appears in Railway logs
             System.err.println("Email send FAILED to " + request.getTo()
                     + " | type=" + request.getType()
                     + " | reason=" + reason);
 
-            return new EmailResponse(
-                    false,
-                    "Email failed: " + reason,
-                    request.getTo(),
-                    request.getType()
-            );
+            return new EmailResponse(false, "Email failed: " + reason,
+                    request.getTo(), request.getType());
         }
     }
 
-    // Get all email logs
     public List<EmailLog> getAllLogs() {
         return emailLogRepository.findAll();
     }
 
-    // Get logs for a specific recipient
     public List<EmailLog> getLogsByRecipient(String email) {
         return emailLogRepository.findByRecipient(email);
     }
