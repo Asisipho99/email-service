@@ -25,5 +25,8 @@ public class EmailLog {
     @Column(nullable = false)
     private String status; // SENT or FAILED
 
+    @Column(columnDefinition = "TEXT")
+    private String failureReason; // populated when status = FAILED
+
     private LocalDateTime sentAt = LocalDateTime.now();
 }
