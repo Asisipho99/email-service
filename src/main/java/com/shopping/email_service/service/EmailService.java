@@ -61,13 +61,20 @@ public class EmailService {
             );
 
         } catch (Exception e) {
-            // Log failure
+            // Log failure with reason so it's visible in the email_logs table
+            String reason = e.getClass().getSimpleName() + ": " + e.getMessage();
             log.setStatus("FAILED");
+            log.setFailureReason(reason);
             emailLogRepository.save(log);
+
+            // Also print to console so it appears in Railway logs
+            System.err.println("Email send FAILED to " + request.getTo()
+                    + " | type=" + request.getType()
+                    + " | reason=" + reason);
 
             return new EmailResponse(
                     false,
-                    "Email failed: " + e.getMessage(),
+                    "Email failed: " + reason,
                     request.getTo(),
                     request.getType()
             );
