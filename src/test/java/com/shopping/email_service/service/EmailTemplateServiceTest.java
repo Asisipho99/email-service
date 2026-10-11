@@ -204,6 +204,63 @@ class EmailTemplateServiceTest {
     // FIXTURES
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // DEGRADED ITEM DATA
+    // -------------------------------------------------------------------------
+
+    @Test
+    void nonHttpsImageUrlIsNotRendered() {
+        // resizeCloudinaryImage returns anything it does not recognise
+        // unchanged, so without an explicit guard a relative or http:// value
+        // would reach the email as a broken image. A product seeded straight
+        // into the database rather than through the Cloudinary upload path can
+        // carry exactly that.
+        for (String hostile : List.of("/assets/no-image.png",
+                                      "http://insecure.example.com/x.jpg",
+                                      "assets/no-image.png")) {
+            EmailRequest.OrderItemLine item =
+                line("Kudu Adjustable Resistance Bands", 1, "149.00", hostile);
+            String html = templateService.buildTemplate(orderRequest(List.of(item)));
+
+            assertThat(imgTags(html))
+                .as("no <img> for src %s", hostile)
+                .isEmpty();
+            assertThat(html)
+                .as("name still shown as text for src %s", hostile)
+                .contains("Kudu Adjustable Resistance Bands");
+        }
+    }
+
+    @Test
+    void nullQuantityDoesNotClaimAQuantityOfOne() {
+        EmailRequest.OrderItemLine item = new EmailRequest.OrderItemLine();
+        item.setProductName("Stoneford Handmade Watering Can");
+        item.setQuantity(null);
+        item.setUnitPrice(new BigDecimal("249.00"));
+
+        String html = templateService.buildTemplate(orderRequest(List.of(item)));
+
+        assertThat(html).contains("Stoneford Handmade Watering Can");
+        assertThat(html)
+            .as("must not assert a quantity the order never supplied")
+            .doesNotContain("Qty 1");
+        assertThat(html).contains("each");
+    }
+
+    @Test
+    void nullQuantityAndNullPriceStillRendersTheName() {
+        EmailRequest.OrderItemLine item = new EmailRequest.OrderItemLine();
+        item.setProductName("Velodrome All Weather Yoga Mat");
+
+        assertThatCode(() ->
+            templateService.buildTemplate(orderRequest(List.of(item))))
+            .doesNotThrowAnyException();
+
+        String html = templateService.buildTemplate(orderRequest(List.of(item)));
+        assertThat(html).contains("Velodrome All Weather Yoga Mat");
+        assertThat(html).doesNotContain("Qty 1");
+    }
+
     private static EmailRequest orderRequest(List<EmailRequest.OrderItemLine> items) {
         EmailRequest request = new EmailRequest();
         request.setTo("thandi.mokoena@example.com");

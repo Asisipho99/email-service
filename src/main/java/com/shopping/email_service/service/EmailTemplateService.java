@@ -197,15 +197,32 @@ public class EmailTemplateService {
                 lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity));
             }
 
+            // Only an absolute https URL is renderable in an email client.
+            // resizeCloudinaryImage passes anything it does not recognise
+            // straight through, so a relative or http:// value - which a
+            // product seeded directly into the database rather than through
+            // the Cloudinary upload path could carry - would otherwise reach
+            // the email and render as a broken image.
             String resizedImage = resizeCloudinaryImage(item.getImageUrl(), 80, 80);
-            String imageCell = (resizedImage != null && !resizedImage.isBlank())
+            String imageCell = (resizedImage != null
+                                && resizedImage.startsWith("https://"))
                 ? "<img src=\"" + resizedImage + "\" alt=\"" + name + "\" width=\"80\" height=\"80\" " +
                   "style=\"display:block;border-radius:8px;border:1px solid #e2e8f0;\">"
                 : "&nbsp;";
 
-            String quantityLine = "Qty " + (quantity != null ? quantity : 1);
-            if (unitPrice != null) {
-                quantityLine += " &times; " + formatRand(unitPrice).replace(" ", "&nbsp;");
+            // No quantity means the order did not supply one. Saying "Qty 1"
+            // would assert a fact we do not have, so omit it - along with the
+            // unit price, which is meaningless without the quantity beside it.
+            String quantityLine = "";
+            if (quantity != null) {
+                quantityLine = "Qty " + quantity;
+                if (unitPrice != null) {
+                    quantityLine += " &times; "
+                                  + formatRand(unitPrice).replace(" ", "&nbsp;");
+                }
+            } else if (unitPrice != null) {
+                quantityLine = formatRand(unitPrice).replace(" ", "&nbsp;")
+                             + "&nbsp;each";
             }
 
             rows.append("<tr>")

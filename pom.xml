@@ -49,6 +49,20 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+
+		<!--
+		  In-memory database for the context test only. The test datasource
+		  used to point at a real MySQL on localhost, which meant the suite's
+		  green result depended on how a developer's local MySQL happened to
+		  respond: it printed an "Access denied" stack trace on every run and
+		  passed only because ddl-auto=none made the failed connection
+		  non-fatal. It also cost 24 seconds waiting on the connection.
+		-->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>test</scope>
+		</dependency>
 		<!-- JPA -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
