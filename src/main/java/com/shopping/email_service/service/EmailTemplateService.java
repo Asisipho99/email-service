@@ -3,6 +3,10 @@ package com.shopping.email_service.service;
 import com.shopping.email_service.dto.EmailRequest;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Locale;
+
 @Service
 public class EmailTemplateService {
 
@@ -90,7 +94,13 @@ public class EmailTemplateService {
         String name      = r.getCustomerName() != null ? r.getCustomerName()  : "Customer";
         String orderId   = r.getOrderId()      != null ? r.getOrderId()       : "N/A";
         String items     = r.getProductList()  != null ? r.getProductList()   : "See order details";
-        double total     = r.getTotalAmount()  != null ? r.getTotalAmount()   : 0.0;
+
+        // Item rows when the list is populated, otherwise the legacy one-line summary.
+        String itemsBlock = (r.getItems() != null && !r.getItems().isEmpty())
+            ? "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:0 0 16px;\">" +
+              buildItemRows(r.getItems()) +
+              "</table>"
+            : "<p style=\"margin:0 0 16px;color:#2d3748;font-size:15px;line-height:1.6;\">" + items + "</p>";
 
         return "<!DOCTYPE html>" +
             "<html><head>" +
@@ -131,11 +141,11 @@ public class EmailTemplateService {
             "</td></tr>" +
             "<tr><td style=\"padding-top:16px;\">" +
             "<p style=\"margin:0 0 8px;color:#718096;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;\">Items</p>" +
-            "<p style=\"margin:0 0 16px;color:#2d3748;font-size:15px;line-height:1.6;\">" + items + "</p>" +
+            itemsBlock +
             "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff;border-radius:8px;padding:16px;\">" +
             "<tr>" +
             "<td><p style=\"margin:0;color:#718096;font-size:14px;\">Total Amount</p></td>" +
-            "<td align=\"right\"><p style=\"margin:0;color:#11998e;font-size:24px;font-weight:700;\">R" + String.format("%.2f", total) + "</p></td>" +
+            "<td align=\"right\"><p style=\"margin:0;color:#11998e;font-size:24px;font-weight:700;\">" + formatRand(r.getTotalAmount()) + "</p></td>" +
             "</tr></table>" +
             "</td></tr></table>" +
             "</td></tr></table>" +
@@ -163,6 +173,62 @@ public class EmailTemplateService {
             "</td></tr>" +
 
             "</table></td></tr></table></body></html>";
+    }
+
+    // -------------------------------------------------------------------------
+    // ORDER ITEM ROWS
+    // -------------------------------------------------------------------------
+    private String buildItemRows(List<EmailRequest.OrderItemLine> items) {
+        StringBuilder rows = new StringBuilder();
+
+        for (EmailRequest.OrderItemLine item : items) {
+            if (item == null) {
+                continue;
+            }
+
+            String name = (item.getProductName() != null && !item.getProductName().isBlank())
+                ? escapeHtml(item.getProductName())
+                : "Item";
+
+            Integer    quantity  = item.getQuantity();
+            BigDecimal unitPrice = item.getUnitPrice();
+            BigDecimal lineTotal = item.getLineTotal();
+            if (lineTotal == null && unitPrice != null && quantity != null) {
+                lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity));
+            }
+
+            String resizedImage = resizeCloudinaryImage(item.getImageUrl(), 80, 80);
+            String imageCell = (resizedImage != null && !resizedImage.isBlank())
+                ? "<img src=\"" + resizedImage + "\" alt=\"" + name + "\" width=\"80\" height=\"80\" " +
+                  "style=\"display:block;border-radius:8px;border:1px solid #e2e8f0;\">"
+                : "&nbsp;";
+
+            String quantityLine = "Qty " + (quantity != null ? quantity : 1);
+            if (unitPrice != null) {
+                quantityLine += " &times; " + formatRand(unitPrice).replace(" ", "&nbsp;");
+            }
+
+            rows.append("<tr>")
+                .append("<td width=\"80\" style=\"padding:8px 12px 8px 0;vertical-align:top;width:80px;\">")
+                .append(imageCell)
+                .append("</td>")
+                .append("<td style=\"padding:8px 0;vertical-align:top;\">")
+                .append("<p style=\"margin:0 0 4px;color:#2d3748;font-size:15px;font-weight:600;\">")
+                .append(name)
+                .append("</p>")
+                .append("<p style=\"margin:0;color:#718096;font-size:13px;\">")
+                .append(quantityLine)
+                .append("</p>")
+                .append("</td>")
+                .append("<td align=\"right\" style=\"padding:8px 0 8px 12px;vertical-align:top;white-space:nowrap;\">")
+                .append("<p style=\"margin:0;color:#2d3748;font-size:15px;font-weight:600;\">")
+                .append(lineTotal != null ? formatRand(lineTotal) : "&nbsp;")
+                .append("</p>")
+                .append("</td>")
+                .append("</tr>");
+        }
+
+        return rows.toString();
     }
 
     // -------------------------------------------------------------------------
@@ -307,5 +373,49 @@ public class EmailTemplateService {
             "</td></tr>" +
 
             "</table></td></tr></table></body></html>";
+    }
+
+    // -------------------------------------------------------------------------
+    // HELPERS
+    // -------------------------------------------------------------------------
+
+    // Inserts a Cloudinary fill transformation after the first /image/upload/ segment.
+    // Fails safe: anything that is not a Cloudinary upload URL is returned unchanged.
+    static String resizeCloudinaryImage(String imageUrl, int width, int height) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return imageUrl;
+        }
+        String marker = "/image/upload/";
+        int markerAt = imageUrl.indexOf(marker);
+        if (markerAt < 0) {
+            return imageUrl;
+        }
+        int insertAt = markerAt + marker.length();
+        return imageUrl.substring(0, insertAt)
+            + "w_" + width + ",h_" + height + ",c_fill/"
+            + imageUrl.substring(insertAt);
+    }
+
+    // Rand with a thousands separator, e.g. R 1,234.56. Locale-independent on purpose.
+    static String formatRand(BigDecimal amount) {
+        if (amount == null) {
+            return "R 0.00";
+        }
+        return "R " + String.format(Locale.US, "%,.2f", amount);
+    }
+
+    static String formatRand(Double amount) {
+        return formatRand(amount != null ? BigDecimal.valueOf(amount) : null);
+    }
+
+    // Product names come from the database and land inside markup and attributes.
+    static String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\"", "&quot;");
     }
 }
