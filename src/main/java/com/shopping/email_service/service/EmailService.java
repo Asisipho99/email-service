@@ -49,6 +49,9 @@ public class EmailService {
             payload.put("to",      new String[]{ request.getTo() });
             payload.put("subject", request.getSubject());
             payload.put("html",    htmlContent);
+            if (request.getBody() != null && !request.getBody().isBlank()) {
+                payload.put("text", request.getBody());
+            }
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
